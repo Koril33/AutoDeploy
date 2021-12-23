@@ -1,0 +1,17 @@
+.idea
+
+__pycache__
+
+build
+
+dist
+
+Lib
+
+Scripts
+
+config.ini
+
+*.spec
+
+*.cfg
