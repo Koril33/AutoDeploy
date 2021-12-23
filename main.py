@@ -1,7 +1,7 @@
 import time
 import paramiko
 import configparser
-
+import os
 
 class Address():
     def __init__(self, host, port):
@@ -179,3 +179,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+    os.system('pause')
