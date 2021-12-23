@@ -87,3 +87,58 @@ remote=/usr/local/devtools/docker/leadmap-platform-management/leadmap-platform-m
 restart=/usr/local/devtools/docker/leadmap-platform-management/restart.sh
 ```
 
+---
+
+## 指定配置文件
+
+当有多台服务器或者本地项目的时候，可以定义多个配置文件，如：
+
+* config-测试环境.ini
+* config-线上环境.ini
+* 我的本地环境.ini
+
+运行命令：
+
+```
+python .\main.py -c .\config-测试环境.ini
+或者
+.\main.exe -c .\config-测试环境.ini
+```
+
+---
+
+## 变量插值
+
+当有些字段重复过多的时候，可以采用变量插值语法
+
+例如：
+
+```ini
+[leadmap-public-server-rest]
+local=E:\newproject\leadmapCloudPlatform\leadmap-public-server\leadmap-public-server-rest\target\leadmap-public-server-rest.jar
+remote=/usr/local/devtools/docker/leadmap-public-server/leadmap-public-server-rest.jar
+restart=/usr/local/devtools/docker/leadmap-public-server/restart.sh
+
+[leadmap-operation-server-rest]
+local=E:\newproject\leadmapCloudPlatform\leadmap-operation-server\leadmap-operation-server-rest\target\leadmap-operation-server-rest.jar
+remote=/usr/local/devtools/docker/leadmap-operation-server/leadmap-operation-server-rest.jar
+restart=/usr/local/devtools/docker/leadmap-operation-server/restart.sh
+```
+
+可以改写成：
+
+```ini
+[variable]
+local_path=E:\领图科技\newproject\leadmapCloudPlatform
+remote_path=/usr/local/devtools/docker
+
+[leadmap-public-server-rest]
+local=${variable:local_path}\leadmap-public-server\leadmap-public-server-rest\target\leadmap-public-server-rest.jar
+remote=${variable:remote_path}/leadmap-public-server/leadmap-public-server-rest.jar
+restart=${variable:remote_path}/leadmap-public-server/restart.sh
+
+[leadmap-operation-server-rest]
+local=${variable:local_path}\leadmap-operation-server\leadmap-operation-server-rest\target\leadmap-operation-server-rest.jar
+remote=${variable:remote_path}/leadmap-operation-server/leadmap-operation-server-rest.jar
+restart=${variable:remote_path}/leadmap-operation-server/restart.sh
+```
