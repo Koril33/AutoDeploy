@@ -2,6 +2,8 @@ import time
 import paramiko
 import configparser
 import os
+import argparse
+from configparser import ExtendedInterpolation
 
 class Address():
     def __init__(self, host, port):
@@ -21,6 +23,7 @@ class Auth():
 address = None
 auth = None
 restart_choice = True
+config_file = None
 
 '''
 存储映射关系的列表
@@ -40,16 +43,17 @@ restart_choice = True
 '''
 map_list = list()
 
-other_sections = ['address', 'auth', 'include', 'restart_choice']
+other_sections = ['address', 'auth', 'include', 'restart_choice', 'variable']
 
 
 def read_config():
     global address
     global auth
     global restart_choice
-
-    cf = configparser.ConfigParser()
-    cf.read('config.ini', encoding='utf-8')
+    global variable_dict
+    print(f'-------------读取配置文件：{config_file}-------------')
+    cf = configparser.ConfigParser(interpolation=ExtendedInterpolation(), inline_comment_prefixes=['#', ';'], allow_no_value=True)
+    cf.read(config_file, encoding='utf-8')
     # 获取所有的配置节
     sections = cf.sections()
 
@@ -71,7 +75,7 @@ def read_config():
 
     # 上传完以后是否重启
     restart_choice_config = cf.items('restart_choice')[0][1]
-    if (restart_choice_config == 'false'):
+    if restart_choice_config == 'false':
         restart_choice = False
 
     for section in other_sections:
@@ -171,7 +175,18 @@ def upload_restart(map_list):
         else:
             print('---------------不选择重启---------------')
 
+
+def get_arg():
+    global config_file
+    parser = argparse.ArgumentParser(description='Test for argparse')
+    parser.add_argument('--config', '-c', help='设置配置文件', default='config.ini')
+    args = parser.parse_args()
+    config_file = args.config
+
+
 def main():
+    # 读取用户输入的配置文件名称
+    get_arg()
     # 读取配置
     read_config()
     upload_restart(map_list)

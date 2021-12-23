@@ -10,7 +10,7 @@ Lib
 
 Scripts
 
-config.ini
+*.ini
 
 *.spec
 
