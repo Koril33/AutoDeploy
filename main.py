@@ -161,21 +161,20 @@ def upload_restart(map_list):
         local_path = file_path_info['local']
         remote_path = file_path_info['remote']
         transport_file(address, auth, local_path, remote_path)
-        print('---------------文件上传完毕，开始重启该服务---------------')
-        restart_path = file_path_info['restart']
-        cmd = generator_cmd(restart_path)
-        print(f'执行重启命令，cmd: [{cmd}]')
-        execute_restart(address, auth, cmd)
-        print('---------------服务重启完成---------------')
-
+        print('---------------文件上传完毕---------------')
+        if restart_choice:
+            restart_path = file_path_info['restart']
+            cmd = generator_cmd(restart_path)
+            print(f'执行重启命令，cmd: [{cmd}]')
+            execute_restart(address, auth, cmd)
+            print('---------------服务重启完成---------------')
+        else:
+            print('---------------不选择重启---------------')
 
 def main():
     # 读取配置
     read_config()
-    if restart_choice:
-        upload_restart(map_list)
-    else:
-        print('上传完成，但不进行服务的重启')
+    upload_restart(map_list)
 
 
 if __name__ == '__main__':
