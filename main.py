@@ -3,195 +3,225 @@ import paramiko
 import configparser
 import os
 import argparse
+import logging
 from configparser import ExtendedInterpolation
+from tqdm import tqdm
 
-class Address():
+
+class Address:
     def __init__(self, host, port):
         self.host = host
         self.port = port
 
     def get_address_tuple(self):
-        return (self.host, self.port)
+        return self.host, self.port
 
 
-class Auth():
+class Auth:
     def __init__(self, username, password):
         self.username = username
         self.password = password
 
 
-address = None
-auth = None
-restart_choice = True
-config_file = None
-
-'''
-存储映射关系的列表
-例如：
-[
-	{
-		'local': 'C:\\Users\\Administrator\\Desktop\\test.txt', 
-		'remote': '/usr/local/devtools/docker/test.txt',
-		'restart': '/usr/local/devtools/docker/leadmap-public-server/restart.sh'
-	}, 
-	{
-		'local': 'E:\\test2.txt', 
-		'remote': '/usr/local/devtools/docker/test2.txt',
-		'restart': '/usr/local/devtools/docker/leadmap-public-server/restart.sh'
-	}
-]
-'''
-map_list = list()
-
-other_sections = ['address', 'auth', 'include', 'restart_choice', 'variable']
+class MapPath:
+    def __init__(self, local_path, remote_path, restart_script_path):
+        self.local_path = local_path
+        self.remote_path = remote_path
+        self.restart_script_path = restart_script_path
 
 
-def read_config():
-    global address
-    global auth
-    global restart_choice
-    global variable_dict
-    print(f'-------------读取配置文件：{config_file}-------------')
-    cf = configparser.ConfigParser(interpolation=ExtendedInterpolation(), inline_comment_prefixes=['#', ';'], allow_no_value=True)
-    cf.read(config_file, encoding='utf-8')
-    # 获取所有的配置节
-    sections = cf.sections()
+class Config:
+    def __init__(self, config_file_name=None):
+        # config_section 代表所有固定的配置项，除了下面以外的配置项都是地址映射
+        self.config_section = {
+            'ADDRESS': 'address',
+            'AUTH': 'auth',
+            'INCLUDE': 'include',
+            'RESTART_CHOICE': 'restart_choice',
+            'VARIABLE': 'variable'
+        }
+        # 配置文件地址
+        self.config_file_name = config_file_name
 
-    address_list = cf.items('address')
-    auth_list = cf.items('auth')
+        self.address = None
+        self.auth = None
+        self.upload_file_list = None
+        self.restart_flag = True
+        self.upload_file_list = None
+        self.map_info_list = None
+        self.map_list = list()
 
-    address_dict = dict()
-    for address_info_tuple in address_list:
-        address_dict[address_info_tuple[0]] = address_info_tuple[1]
-    auth_dict = dict()
-    for auth_info_tuple in auth_list:
-        auth_dict[auth_info_tuple[0]] = auth_info_tuple[1]
+    def get_arg(self):
+        parser = argparse.ArgumentParser(description='Test for argparse')
+        parser.add_argument('--config', '-c', help='设置配置文件', default='config-测试.ini')
+        args = parser.parse_args()
+        self.config_file_name = args.config
 
-    address = Address(address_dict['host'], int(address_dict['port']))
-    auth = Auth(auth_dict['username'], auth_dict['password'])
+    def read_config(self):
+        self.get_arg()
+        print(f'-------------读取配置文件：{self.config_file_name}-------------')
+        cf = configparser.ConfigParser(interpolation=ExtendedInterpolation(),
+                                       inline_comment_prefixes=['#', ';'],
+                                       allow_no_value=True)
 
-    # 用于指定上传哪些文件
-    include_list = cf.items('include')[0][1].split(',')
+        cf.read(self.config_file_name, encoding='utf-8')
 
-    # 上传完以后是否重启
-    restart_choice_config = cf.items('restart_choice')[0][1]
-    if restart_choice_config == 'false':
-        restart_choice = False
+        # 获取所有的配置节
+        sections = cf.sections()
+        # 服务器地址信息[('host', '192.168.1.62'), ('port', '22')]
+        address_info_list = cf.items('address')
+        # 服务器用户名和密码[('username', 'root'), ('password', '123456')]
+        auth_info_list = cf.items('auth')
 
-    for section in other_sections:
-        sections.remove(section)
+        address_info_dict = {address_info[0]: address_info[1] for address_info in address_info_list}
+        auth_info_dict = {auth_info[0]: auth_info[1] for auth_info in auth_info_list}
 
-    # 遍历所有 map，构造映射关系的列表
-    for section in sections:
-        if section not in include_list:
-            continue
-        item = cf.items(section)
-        local_info = item[0]
-        remote_info = item[1]
-        restart_info = item[2]
+        self.address = Address(address_info_dict['host'], int(address_info_dict['port']))
+        self.auth = Auth(auth_info_dict['username'], auth_info_dict['password'])
 
-        d = dict()
-        d[local_info[0]] = local_info[1]
-        d[remote_info[0]] = remote_info[1]
-        d[restart_info[0]] = restart_info[1]
+        # 用于指定上传哪些文件
+        self.upload_file_list = cf.items('include')[0][1].split(',')
 
-        map_list.append(d)
+        # 上传完以后是否重启
+        restart_choice_config = cf.items('restart_choice')[0][1]
+        if restart_choice_config == 'false':
+            self.restart_flag = False
 
+        # 所有需要上传的 map 映射路径的 section 配置名称列表
+        self.map_info_list = [
+            map_info
+            for map_info in sections
+            if map_info not in self.config_section.values() and map_info in self.upload_file_list
+        ]
 
-def transport_file(address, auth, local_path, remote_path):
-    if address is None:
-        raise Exception('address 不能为 None')
-    if auth is None:
-        raise Exception('auth 不能为 None')
-    print(
-        f'-----------------开始上传-------------------\n'
-        f'将本地文件:[{local_path}]\n'
-        f'上传至服务器: [{address.get_address_tuple()}]， 路径: [{remote_path}]\n'
-    )
-    start_time = time.time()
+        # 遍历所有 map，构造映射关系的列表
+        for map_name in self.map_info_list:
+            map_info = cf.items(map_name)
+            m = MapPath(
+                map_info[0][1],
+                map_info[1][1],
+                map_info[2][1]
+            )
 
-    # 获取Transport实例
-    tran = paramiko.Transport(address.get_address_tuple())
-
-    # 连接SSH服务端，使用用户名和密码的方式
-    tran.connect(username=auth.username, password=auth.password)
-
-    # 或使用
-    # 配置私人密钥文件位置
-    # private = paramiko.RSAKey.from_private_key_file('/Users/root/.ssh/id_rsa')
-    # 连接SSH服务端，使用pkey指定私钥
-    # tran.connect(username="root", pkey=private)
-
-    # 获取SFTP实例
-    sftp = paramiko.SFTPClient.from_transport(tran)
-
-    # 执行上传动作
-    sftp.put(localpath=local_path, remotepath=remote_path)
-    # 执行下载动作
-    # sftp.get(remotepath, localpath)
-
-    tran.close()
-    end_time = time.time()
-    print(f'-----------------上传完成，耗时：[{end_time - start_time}]秒-------------------\n')
+            self.map_list.append(m)
 
 
-def execute_restart(address, auth, cmd, timeout=10):
-    try:
-        ssh = paramiko.SSHClient()  # 创建一个新的SSHClient实例
-        ssh.banner_timeout = timeout
-        # 设置host key,如果在"known_hosts"中没有保存相关的信息, SSHClient 默认行为是拒绝连接, 会提示yes/no
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(address.host, int(address.port), auth.username, auth.password, timeout=timeout)  # 连接远程服务器,超时时间1秒
-        stdin, stdout, stderr = ssh.exec_command(cmd, get_pty=True, timeout=timeout)  # 执行命令
-        result_info = stdout.readlines()  # 执行结果,readlines会返回列表
-        # 执行状态,0表示成功，1表示失败
-        channel = stdout.channel
-        status = channel.recv_exit_status()
-        ssh.close()  # 关闭ssh连接
-        for info in result_info:
-            print(info)
-    except Exception as e:
-        print(e)
-        print(f'错误, 服务器执行命令错误！ip: {address.get_address_tuple()} 命令: {cmd}')
+class Server:
+    def __init__(self, address, auth, restart_flag):
+        self.address = address
+        self.auth = auth
+        self.restart_flag = restart_flag
+
+    def transport_file(self, local_path, remote_path):
+        if self.address is None:
+            raise Exception('address 不能为 None')
+        if self.auth is None:
+            raise Exception('auth 不能为 None')
+
+        logging.info(f'将本地文件: [{local_path}] '
+                     f'上传至服务器: [{self.address.get_address_tuple()}], '
+                     f'存储路径: [{remote_path}]')
+
+        start_time = time.time()
+
+        # 获取Transport实例
+        tran = paramiko.Transport(self.address.get_address_tuple())
+
+        # 连接SSH服务端，使用用户名和密码的方式
+        tran.connect(username=self.auth.username, password=self.auth.password)
+
+        # 或使用
+        # 配置私人密钥文件位置
+        # private = paramiko.RSAKey.from_private_key_file('/Users/root/.ssh/id_rsa')
+        # 连接SSH服务端，使用pkey指定私钥
+        # tran.connect(username="root", pkey=private)
+
+        # 获取SFTP实例
+        sftp = paramiko.SFTPClient.from_transport(tran)
+
+        # 执行上传动作
+        # sftp.put(localpath=local_path, remotepath=remote_path)
+        cbk, pbar = tqdmWrapViewBar(ascii=True, unit='b', unit_scale=True)
+        sftp.put(localpath=local_path, remotepath=remote_path, callback=cbk)
+        pbar.close()
+
+        # 执行下载动作
+        # sftp.get(remotepath, localpath)
+
+        tran.close()
+        end_time = time.time()
+        logging.info(f'上传完成！耗时: [{round(end_time - start_time, 3)}]')
+
+    def execute_restart(self, cmd, timeout=10):
+        try:
+            ssh = paramiko.SSHClient()  # 创建一个新的SSHClient实例
+            ssh.banner_timeout = timeout
+
+            # 设置host key,如果在"known_hosts"中没有保存相关的信息, SSHClient 默认行为是拒绝连接, 会提示yes/no
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+            ssh.connect(
+                self.address.host,
+                int(self.address.port),
+                self.auth.username,
+                self.auth.password,
+                timeout=timeout
+            )
+            # 执行命令
+            stdin, stdout, stderr = ssh.exec_command(cmd, get_pty=True, timeout=timeout)
+            # 执行结果, readlines 返回列表
+            result_info = stdout.readlines()
+            # 执行状态,0表示成功，1表示失败
+            channel = stdout.channel
+            status = channel.recv_exit_status()
+            ssh.close()  # 关闭ssh连接
+            for info in result_info:
+                logging.info(info)
+        except Exception as e:
+            logging.error(e)
+            logging.error(f'错误, 服务器执行命令错误！ip: {self.address.get_address_tuple()} 命令: {cmd}')
+
+    def generator_cmd(self, restart_path):
+        path = restart_path.rpartition('/')[0]
+        return 'cd ' + path + ' && . ' + restart_path
+
+    def upload_restart(self, map_list):
+        for map_info in map_list:
+            local_path = map_info.local_path
+            remote_path = map_info.remote_path
+            self.transport_file(local_path, remote_path)
+
+            if self.restart_flag:
+                restart_path = map_info.restart_script_path
+                cmd = self.generator_cmd(restart_path)
+                logging.info(f'执行重启命令，cmd: [{cmd}]')
+                self.execute_restart(cmd)
+            else:
+                logging.info(f'不进行重启服务')
 
 
-def generator_cmd(restart_path):
-    path = restart_path.rpartition('/')[0]
-    return 'cd ' + path + ' && . ' + restart_path
+def tqdmWrapViewBar(*args, **kwargs):
+    pbar = tqdm(*args, **kwargs)  # make a progressbar
+    last = [0]  # last known iteration, start at 0
 
+    def viewBar2(a, b):
+        pbar.total = int(b)
+        pbar.update(int(a - last[0]))  # update pbar with increment
+        last[0] = a  # update last known iteration
 
-def upload_restart(map_list):
-    for file_path_info in map_list:
-        local_path = file_path_info['local']
-        remote_path = file_path_info['remote']
-        transport_file(address, auth, local_path, remote_path)
-        print('---------------文件上传完毕---------------')
-        if restart_choice:
-            restart_path = file_path_info['restart']
-            cmd = generator_cmd(restart_path)
-            print(f'执行重启命令，cmd: [{cmd}]')
-            execute_restart(address, auth, cmd)
-            print('---------------服务重启完成---------------')
-        else:
-            print('---------------不选择重启---------------')
-
-
-def get_arg():
-    global config_file
-    parser = argparse.ArgumentParser(description='Test for argparse')
-    parser.add_argument('--config', '-c', help='设置配置文件', default='config.ini')
-    args = parser.parse_args()
-    config_file = args.config
+    return viewBar2, pbar  # return callback, tqdmInstance
 
 
 def main():
-    # 读取用户输入的配置文件名称
-    get_arg()
-    # 读取配置
-    read_config()
-    upload_restart(map_list)
+    config = Config()
+    config.read_config()
+    print(config.map_list)
+    server = Server(config.address, config.auth, config.restart_flag)
+    server.upload_restart(config.map_list)
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(__name__)
     main()
     os.system('pause')
