@@ -24,10 +24,14 @@ class Auth:
 
 
 class MapPath:
-    def __init__(self, local_path, remote_path, restart_script_path):
+    def __init__(self, map_name, local_path, remote_path, restart_script_path):
+        self.map_name = map_name
         self.local_path = local_path
         self.remote_path = remote_path
         self.restart_script_path = restart_script_path
+
+    def __repr__(self):
+        return self.map_name
 
 
 class Config:
@@ -108,6 +112,7 @@ class Config:
         for map_name in self.upload_file_list:
             map_info = cf.items(map_name)
             m = MapPath(
+                map_name,
                 map_info[0][1],
                 map_info[1][1],
                 map_info[2][1]
@@ -155,7 +160,14 @@ class Server:
 
         # 执行上传动作
         # sftp.put(localpath=local_path, remotepath=remote_path)
-        cbk, pbar = tqdmWrapViewBar(ascii=True, unit='b', unit_scale=True, ncols=100, postfix='上传中')
+        cbk, pbar = tqdmWrapViewBar(
+            ascii=True,
+            unit='b',
+            unit_scale=True,
+            ncols=100,
+            postfix='上传中',
+            colour='green'
+        )
         sftp.put(localpath=local_path, remotepath=remote_path, callback=cbk)
         pbar.close()
 
@@ -190,7 +202,7 @@ class Server:
             status = channel.recv_exit_status()
             ssh.close()  # 关闭ssh连接
             for info in result_info:
-                logging.info(info)
+                logging.info(info.rstrip('\n'))
             self.result.success_restart_list.append(cmd)
         except Exception as e:
             logging.error(e)
@@ -202,6 +214,7 @@ class Server:
         return 'cd ' + path + ' && . ' + restart_path
 
     def upload_restart(self):
+        logging.info(f'上传文件: {self.config.map_list}, 共 {len(self.config.map_list)} 个')
         for map_info in self.config.map_list:
             local_path = map_info.local_path
             remote_path = map_info.remote_path
@@ -231,6 +244,7 @@ class Result:
         self.expect_upload_list = expect_upload_list
         self.expect_restart_list = expect_restart_list
 
+
 def tqdmWrapViewBar(*args, **kwargs):
     pbar = tqdm(*args, **kwargs)  # make a progressbar
     last = [0]  # last known iteration, start at 0
@@ -249,18 +263,18 @@ def main():
     server = Server(config.address, config.auth, config)
     server.upload_restart()
     result = server.result
-    logging.info('执行结束')
-    logging.info(f'期望上传: {result.expect_upload_list}')
-    logging.info(f'实际上传: {result.success_upload_list}')
-    logging.info(f'期望重启: {result.expect_restart_list}')
-    logging.info(f'实际重启: {result.success_restart_list}')
-    logging.info(f'失败上传: {result.fail_upload_list}')
-    logging.info(f'失败重启: {result.fail_restart_list}')
+    logging.info('---------------------执行结束---------------------')
+    logging.info(f'期望上传: {result.expect_upload_list}, 共 {len(result.expect_upload_list)} 个')
+    logging.info(f'实际上传: {result.success_upload_list}, 共 {len(result.success_upload_list)} 个')
+    logging.info(f'期望重启: {result.expect_restart_list}, 共 {len(result.expect_restart_list)} 个')
+    logging.info(f'实际重启: {result.success_restart_list}, 共 {len(result.success_restart_list)} 个')
+    logging.info(f'失败上传: {result.fail_upload_list}, 共 {len(result.fail_upload_list)} 个')
+    logging.info(f'失败重启: {result.fail_restart_list}, 共 {len(result.fail_restart_list)} 个')
 
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO,
-                        format='<%(asctime)s> - <%(name)s> - <%(levelname)s> - <%(message)s>')
+                        format='\033[1;36m <%(asctime)s> \033[0m - \033[1;35m <%(name)s> \033[0m - \033[1;34m <%(levelname)s> \033[0m - <%(message)s>')
     logger = logging.getLogger(__name__)
     main()
     os.system('pause')
