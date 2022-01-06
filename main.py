@@ -42,13 +42,18 @@ class Config:
         }
         # 配置文件地址
         self.config_file_name = config_file_name
-
+        # 服务器地址
         self.address = None
+        # 服务器用户信息
         self.auth = None
-        self.upload_file_list = None
+        # 是否重启
+        # True: 重启
+        # False: 不重启
         self.restart_flag = True
-        self.upload_file_list = None
+        # 配置文件中所有文件的名称列表
         self.map_info_list = None
+        # 需要上传文件的名称列表
+        self.upload_file_list = None
         self.map_list = list()
 
     def get_arg(self):
@@ -59,7 +64,7 @@ class Config:
 
     def read_config(self):
         self.get_arg()
-        print(f'-------------读取配置文件：{self.config_file_name}-------------')
+        logging.info(f'读取配置文件：{self.config_file_name}')
         cf = configparser.ConfigParser(interpolation=ExtendedInterpolation(),
                                        inline_comment_prefixes=['#', ';'],
                                        allow_no_value=True)
@@ -79,23 +84,28 @@ class Config:
         self.address = Address(address_info_dict['host'], int(address_info_dict['port']))
         self.auth = Auth(auth_info_dict['username'], auth_info_dict['password'])
 
-        # 用于指定上传哪些文件
-        self.upload_file_list = cf.items('include')[0][1].split(',')
-
         # 上传完以后是否重启
         restart_choice_config = cf.items('restart_choice')[0][1]
         if restart_choice_config == 'false':
             self.restart_flag = False
 
-        # 所有需要上传的 map 映射路径的 section 配置名称列表
+        # 所有的 map 映射路径的 section 配置名称列表
         self.map_info_list = [
             map_info
             for map_info in sections
-            if map_info not in self.config_section.values() and map_info in self.upload_file_list
+            if map_info not in self.config_section.values()
         ]
 
+        # 所有需要上传的 map
+        # 如果配置的内容是 all 就上传全部
+        include_info = cf.items('include')[0][1]
+        if include_info == 'all':
+            self.upload_file_list = self.map_info_list
+        else:
+            self.upload_file_list = include_info.split(',')
+
         # 遍历所有 map，构造映射关系的列表
-        for map_name in self.map_info_list:
+        for map_name in self.upload_file_list:
             map_info = cf.items(map_name)
             m = MapPath(
                 map_info[0][1],
@@ -215,13 +225,13 @@ def tqdmWrapViewBar(*args, **kwargs):
 def main():
     config = Config()
     config.read_config()
-    print(config.map_list)
     server = Server(config.address, config.auth, config.restart_flag)
     server.upload_restart(config.map_list)
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=logging.INFO,
+                        format='[%(asctime)s] - [%(name)s] - [%(levelname)s] - [%(message)s]')
     logger = logging.getLogger(__name__)
     main()
     os.system('pause')
