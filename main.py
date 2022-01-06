@@ -219,7 +219,7 @@ class Server:
             local_path = map_info.local_path
             remote_path = map_info.remote_path
             self.transport_file(local_path, remote_path)
-            self.result.success_upload_list.append(local_path)
+            self.result.success_upload_list.append(map_info.map_name)
 
             if self.config.restart_flag:
                 restart_path = map_info.restart_script_path
@@ -274,7 +274,7 @@ def main():
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO,
-                        format='\033[1;36m <%(asctime)s> \033[0m - \033[1;35m <%(name)s> \033[0m - \033[1;34m <%(levelname)s> \033[0m - <%(message)s>')
+                        format='\033[1;36m <%(asctime)s> \033[0m-\033[1;35m <%(name)s> \033[0m-\033[1;34m <%(levelname)s> \033[0m- <%(message)s>')
     logger = logging.getLogger(__name__)
     main()
     os.system('pause')
