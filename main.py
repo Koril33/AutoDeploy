@@ -117,10 +117,14 @@ class Config:
 
 
 class Server:
-    def __init__(self, address, auth, restart_flag):
+    def __init__(self, address, auth, config):
         self.address = address
         self.auth = auth
-        self.restart_flag = restart_flag
+        self.config = config
+        if config.restart_flag:
+            self.result = Result(config.upload_file_list, config.upload_file_list)
+        else:
+            self.result = Result(config.upload_file_list, [])
 
     def transport_file(self, local_path, remote_path):
         if self.address is None:
@@ -151,7 +155,7 @@ class Server:
 
         # 执行上传动作
         # sftp.put(localpath=local_path, remotepath=remote_path)
-        cbk, pbar = tqdmWrapViewBar(ascii=True, unit='b', unit_scale=True)
+        cbk, pbar = tqdmWrapViewBar(ascii=True, unit='b', unit_scale=True, ncols=100, postfix='上传中')
         sftp.put(localpath=local_path, remotepath=remote_path, callback=cbk)
         pbar.close()
 
@@ -160,7 +164,7 @@ class Server:
 
         tran.close()
         end_time = time.time()
-        logging.info(f'上传完成！耗时: [{round(end_time - start_time, 3)}]')
+        logging.info(f'上传完成！耗时: [{round(end_time - start_time, 3)} 秒]')
 
     def execute_restart(self, cmd, timeout=10):
         try:
@@ -187,21 +191,24 @@ class Server:
             ssh.close()  # 关闭ssh连接
             for info in result_info:
                 logging.info(info)
+            self.result.success_restart_list.append(cmd)
         except Exception as e:
             logging.error(e)
             logging.error(f'错误, 服务器执行命令错误！ip: {self.address.get_address_tuple()} 命令: {cmd}')
+            self.result.fail_restart_list.append(cmd)
 
     def generator_cmd(self, restart_path):
         path = restart_path.rpartition('/')[0]
         return 'cd ' + path + ' && . ' + restart_path
 
-    def upload_restart(self, map_list):
-        for map_info in map_list:
+    def upload_restart(self):
+        for map_info in self.config.map_list:
             local_path = map_info.local_path
             remote_path = map_info.remote_path
             self.transport_file(local_path, remote_path)
+            self.result.success_upload_list.append(local_path)
 
-            if self.restart_flag:
+            if self.config.restart_flag:
                 restart_path = map_info.restart_script_path
                 cmd = self.generator_cmd(restart_path)
                 logging.info(f'执行重启命令，cmd: [{cmd}]')
@@ -209,6 +216,20 @@ class Server:
             else:
                 logging.info(f'不进行重启服务')
 
+
+class Result:
+    def __init__(self, expect_upload_list=None, expect_restart_list=None):
+        # 实际成功上传文件列表
+        self.success_upload_list = []
+        # 实际失败上传文件列表
+        self.fail_upload_list = []
+        # 实际成功重启服务列表
+        self.success_restart_list = []
+        # 实际失败重启服务列表
+        self.fail_restart_list = []
+
+        self.expect_upload_list = expect_upload_list
+        self.expect_restart_list = expect_restart_list
 
 def tqdmWrapViewBar(*args, **kwargs):
     pbar = tqdm(*args, **kwargs)  # make a progressbar
@@ -225,13 +246,21 @@ def tqdmWrapViewBar(*args, **kwargs):
 def main():
     config = Config()
     config.read_config()
-    server = Server(config.address, config.auth, config.restart_flag)
-    server.upload_restart(config.map_list)
+    server = Server(config.address, config.auth, config)
+    server.upload_restart()
+    result = server.result
+    logging.info('执行结束')
+    logging.info(f'期望上传: {result.expect_upload_list}')
+    logging.info(f'实际上传: {result.success_upload_list}')
+    logging.info(f'期望重启: {result.expect_restart_list}')
+    logging.info(f'实际重启: {result.success_restart_list}')
+    logging.info(f'失败上传: {result.fail_upload_list}')
+    logging.info(f'失败重启: {result.fail_restart_list}')
 
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO,
-                        format='[%(asctime)s] - [%(name)s] - [%(levelname)s] - [%(message)s]')
+                        format='<%(asctime)s> - <%(name)s> - <%(levelname)s> - <%(message)s>')
     logger = logging.getLogger(__name__)
     main()
     os.system('pause')
